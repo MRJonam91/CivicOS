@@ -18,6 +18,7 @@ import { AuditChain, GENESIS_PREVIOUS_HASH } from './audit.ts';
 import { NotificationDispatcher } from './notifications.ts';
 import { InteroperabilityExporter } from './export.ts';
 import { ReceiptGenerator } from './receipt.ts';
+import { CivicAttachmentValidator } from './attachments.ts';
 
 export interface SubmitApplicationInput {
   schemaId: string;
@@ -84,10 +85,25 @@ export class CivicEngine {
       };
     }
 
+    if (input.attachments && input.attachments.length > 0) {
+      for (const att of input.attachments) {
+        const attCheck = CivicAttachmentValidator.validate(att);
+        if (!attCheck.valid) {
+          return {
+            success: false,
+            validation: {
+              valid: false,
+              errors: [{ field: 'attachments', message: attCheck.error || 'Allegato non valido', code: 'INVALID_ATTACHMENT' }]
+            }
+          };
+        }
+      }
+    }
+
     const now = new Date();
     const nowIso = now.toISOString();
     const id = LifecycleManager.generateApplicationId(now);
-    const dueDate = LifecycleManager.calculateDueDate(now, schema.slaDays);
+    const dueDate = LifecycleManager.calculateDueDate(now, schema.slaDays, schema.slaCalculationMode);
 
     const initialAudit = AuditChain.createEntry(
       1,

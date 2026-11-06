@@ -4,6 +4,7 @@
 import { randomInt } from 'node:crypto';
 import type { ApplicationStatus, CitizenApplication } from './types.ts';
 import { AuditChain, GENESIS_PREVIOUS_HASH } from './audit.ts';
+import { CivicCalendar } from './calendar.ts';
 
 export const ALLOWED_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   SUBMITTED: ['IN_REVIEW'],
@@ -23,9 +24,15 @@ export class LifecycleManager {
     return `PRAT-${y}${m}${d}-${seq}`;
   }
 
-  public static calculateDueDate(startDate: Date, slaDays: number): string {
-    const due = new Date(startDate.getTime());
-    due.setUTCDate(due.getUTCDate() + slaDays);
+  public static calculateDueDate(
+    startDate: Date,
+    slaDays: number,
+    mode: 'calendar' | 'business' = 'calendar'
+  ): string {
+    const due = mode === 'business'
+      ? CivicCalendar.addBusinessDays(startDate, slaDays)
+      : new Date(startDate.getTime() + slaDays * 86400000);
+
     const datePart = due.toISOString().split('T')[0];
     return datePart || due.toISOString().substring(0, 10);
   }

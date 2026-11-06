@@ -4,8 +4,12 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { CivicEngine } from '../core/engine.ts';
 import type { ApplicationFilterOptions, ApplicationStatus, ExportFormat, NotificationChannel } from '../core/types.ts';
+import { CpsvApSerializer } from '../interop/cpsv.ts';
+import { SlidingWindowRateLimiter } from '../security/rate-limiter.ts';
 
 export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
+  const rateLimiter = new SlidingWindowRateLimiter({ windowMs: 60000, maxRequests: 30 });
+
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
@@ -28,7 +32,7 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
         return sendJson(res, 200, {
           status: 'ok',
           service: 'civicos',
-          version: '0.2.0',
+          version: '0.3.0',
           timestamp: new Date().toISOString()
         });
       }
@@ -40,12 +44,24 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
 
       // API: Get schema detail
       if (pathname.startsWith('/api/v1/schemas/') && method === 'GET') {
-        const schemaId = pathname.replace('/api/v1/schemas/', '');
+        const schemaId = pathname.replace('/api/v1/schemas/', '').replace('/cpsv-ap', '');
+        const isCpsv = pathname.endsWith('/cpsv-ap');
         const schema = engine.getRegistry().get(schemaId);
         if (!schema) {
           return sendJson(res, 404, { error: `Schema "${schemaId}" not found` });
         }
+        if (isCpsv) {
+          return sendJson(res, 200, CpsvApSerializer.serializeService(schema));
+        }
         return sendJson(res, 200, { schema });
+      }
+
+      // API: Export schemas as CPSV-AP Catalog
+      if (pathname === '/api/v1/cpsv-ap' && method === 'GET') {
+        const schemas = engine.getRegistry().list();
+        res.writeHead(200, { 'Content-Type': 'application/ld+json; charset=utf-8' });
+        res.end(CpsvApSerializer.serializeCatalog(schemas));
+        return;
       }
 
       // API: Export applications
@@ -83,6 +99,16 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
 
       // API: Submit application
       if (pathname === '/api/v1/applications' && method === 'POST') {
+        const clientIp = req.socket.remoteAddress || 'unknown';
+        const rateCheck = rateLimiter.check(clientIp);
+        if (!rateCheck.allowed) {
+          res.setHeader('Retry-After', Math.ceil(rateCheck.resetMs / 1000));
+          return sendJson(res, 429, {
+            error: 'Too many requests. Please wait before submitting another civic application.',
+            resetMs: rateCheck.resetMs
+          });
+        }
+
         const body = await parseJsonBody(req);
         if (!body.schemaId || !body.applicant || !body.data) {
           return sendJson(res, 400, { error: 'Missing required parameters: schemaId, applicant, data' });
@@ -345,10 +371,11 @@ function renderDashboardHtml(schemas: any[], apps: any[], searchQuery?: string, 
     <div style="display:flex; justify-content:space-between; align-items:flex-end;">
       <h2>📁 Istanze e Procedimenti Amministrativi (${apps.length})</h2>
       <div class="export-bar">
-        <span style="font-size:13px; color:#57609a;">Export dati:</span>
+        <span style="font-size:13px; color:#57609a;">Export:</span>
         <a class="btn" href="/api/v1/export?format=json" target="_blank">JSON</a>
         <a class="btn" href="/api/v1/export?format=csv" target="_blank">CSV OpenData</a>
         <a class="btn" href="/api/v1/export?format=ndjson" target="_blank">NDJSON</a>
+        <a class="btn" href="/api/v1/cpsv-ap" target="_blank" style="background:#f0f8ff; color:#0969da; border-color:#54aeff;">🇪🇺 CPSV-AP</a>
       </div>
     </div>
 

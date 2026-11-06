@@ -4,6 +4,16 @@ All notable changes to **CivicOS** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-06
+
+### Added
+- **European CPSV-AP Standard (Core Public Service Vocabulary Application Profile)**: Full JSON-LD mapping and catalog export (`/api/v1/cpsv-ap` and `/api/v1/schemas/:id/cpsv-ap`) enabling seamless interoperability with EU and AgID public service catalogs.
+- **National Holiday & Business Day SLA Engine (`CivicCalendar`)**: Procedural deadline calculator supporting Italian fixed and mobile public holidays (Easter Monday algorithm) and working-day SLA counting (`slaCalculationMode: 'business'`).
+- **Cryptographic Attachment Validation**: Whitelist verification for civic document MIME types (PDF, JPEG, XML, P7M digital signatures) and strict SHA-256 fingerprint checks ensuring file integrity.
+- **Sliding-Window Rate Limiter**: Zero-dependency defense layer protecting public submission endpoints against automated spam and DoS attempts.
+- **HMAC-SHA256 Webhook Signer**: Anti-replay cryptographic signing (`X-Civic-Signature`) for secure interoperability with PA municipal software systems and electronic document registries (Protocollo Informatico).
+- **Expanded Test Suite**: 27 automated tests passing with 100% success rate across core, calendar, attachments, interop, and security.
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

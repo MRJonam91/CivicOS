@@ -17,7 +17,7 @@ function printSponsorMaybe(): void {
 
 function printHelp(): void {
   console.log(`
-CivicOS — Standalone Civic Forms, Procedures & Notifications Engine (v0.2.0-beta)
+CivicOS — Standalone Civic Forms, Procedures & Notifications Engine (v0.3.0-beta)
 Usage: civicos <command> [options]
 
 Commands:
@@ -67,7 +67,7 @@ async function main() {
   }
 
   if (args.includes('-v') || args.includes('--version')) {
-    console.log('CivicOS v0.2.0-beta');
+    console.log('CivicOS v0.3.0-beta');
     return;
   }
 

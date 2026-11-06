@@ -61,6 +61,7 @@ export interface CivicFormSchema {
   category: 'education' | 'public_spaces' | 'urban_maintenance' | 'registry' | 'general';
   competentBody: string; // e.g. "Comune di Esempio - Settore Servizi alla Persona"
   slaDays: number; // Termine procedimento L. 241/90 (es. 30 gg)
+  slaCalculationMode?: 'calendar' | 'business'; // Default: 'calendar'
   version: string;
   fields: FormFieldDefinition[];
   createdAt: string;

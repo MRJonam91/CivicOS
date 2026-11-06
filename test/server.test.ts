@@ -40,7 +40,14 @@ test('HTTP Server responds to health, schemas, public forms, receipt and case ma
     assert.equal(healthRes.status, 200);
     const healthJson = await healthRes.json();
     assert.equal(healthJson.status, 'ok');
-    assert.equal(healthJson.version, '0.2.0');
+    assert.equal(healthJson.version, '0.3.0');
+
+    // 1b. CPSV-AP Catalog endpoint
+    const cpsvRes = await fetch(`${baseUrl}/api/v1/cpsv-ap`);
+    assert.equal(cpsvRes.status, 200);
+    const cpsvJson = await cpsvRes.json();
+    assert.ok(Array.isArray(cpsvJson));
+    assert.equal(cpsvJson[0]['@type'], 'cpsv:PublicService');
 
     // 2. Schemas list
     const schemasRes = await fetch(`${baseUrl}/api/v1/schemas`);

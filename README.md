@@ -30,7 +30,9 @@ Public administrations and municipal bodies waste millions annually rewriting id
 
 CivicOS is a sovereign, open source digital public goods module:
 - **Declarative Form Schemas**: Rigorous schema catalog (`iscrizione-mensa-scolastica`, `richiesta-occupazione-suolo-pubblico`, `segnalazione-manutenzione-urbana`) with built-in validation for Italian fiscal codes (official D.M. 23/12/1976 checksum algorithm), conditional dependencies (`dependsOn`), chronological dates, ranges, and required fields.
-- **Procedural Lifecycle Management**: Automatic generation of unique procedural IDs (`PRAT-YYYYMMDD-XXXX`), calculation of legal SLA deadlines, and deterministic state machine transitions (`SUBMITTED` ➔ `IN_REVIEW` ➔ `INTEGRATION_REQUESTED` ➔ `APPROVED` / `REJECTED` ➔ `CLOSED`).
+- **Procedural Lifecycle Management & Business Day SLAs**: Automatic generation of unique procedural IDs (`PRAT-YYYYMMDD-XXXX`), calculation of legal SLA deadlines (calendar or Italian working days excluding national holidays), and deterministic state machine transitions (`SUBMITTED` ➔ `IN_REVIEW` ➔ `INTEGRATION_REQUESTED` ➔ `APPROVED` / `REJECTED` ➔ `CLOSED`).
+- **European CPSV-AP Interoperability**: Native JSON-LD catalog export compliant with W3C / ISA2 Core Public Service Vocabulary Application Profile.
+- **Security & Integrity Shield**: Sliding-window rate limiting on public forms, HMAC-SHA256 authenticated webhooks for electronic protocol registries, and cryptographic SHA-256 attachment verification (PDF, XML, CAdES p7m).
 - **Official Protocol Receipt & Case Dossier**: Web case management interface (`/applications/:id`) and printable official electronic receipt (`/receipts/:id`) compliant with DPR 445/2000 legal declarations and cryptographic proof.
 - **Sovereign Atomic Storage**: Zero external DB requirements; optional `FileStorageAdapter` with crash-resilient atomic writes or fast `MemoryStorageAdapter`.
 - **Tamper-Evident Cryptographic Audit Chain**: Every citizen submission and administrative transition is permanently hashed and chained via SHA-256 (`prevHash`), providing undeniable transparency and auditability.
