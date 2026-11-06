@@ -1,6 +1,6 @@
 {
   "name": "civicos",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Standalone civic forms and notifications engine for public bodies: declarative schemas, citizen application lifecycle, multi-channel notifications (email, SMS, App IO mock) and open data export.",
   "type": "module",
   "license": "Apache-2.0",

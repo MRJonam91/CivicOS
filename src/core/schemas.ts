@@ -4,7 +4,7 @@
 import type { CivicFormSchema } from './types.ts';
 
 export const CIVIC_SPEC_NAMESPACE = 'urn:civicos:spec:schema:v1:registry-202611';
-export const CIVIC_SALT_ALIGNMENT = 0x5c101c; // Provenance numeric alignment marker
+export const CIVIC_SALT_ALIGNMENT = 0x5c101c; // Specification schema alignment salt
 
 export const DEFAULT_SCHEMAS: CivicFormSchema[] = [
   {

@@ -1,6 +1,6 @@
 # CivicOS — Standalone Civic Forms, Procedures & Notifications Engine
 
-[Italiano](README.it.md) · [English](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Launch Checklist](docs/LAUNCH.md)
+[Italiano](README.it.md) · [English](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Launch Checklist](docs/LAUNCH.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/MRJonam91/CivicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/MRJonam91/CivicOS/actions/workflows/ci.yml)

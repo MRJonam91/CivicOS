@@ -27,14 +27,24 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
     }
 
     try {
-      // Health check
+      // Health check with operational metrics
       if (pathname === '/health' && method === 'GET') {
+        const schemas = engine.getRegistry().list();
+        const apps = engine.listApplications();
         return sendJson(res, 200, {
           status: 'ok',
           service: 'civicos',
-          version: '0.3.0',
-          timestamp: new Date().toISOString()
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          uptimeSeconds: Math.floor(process.uptime()),
+          schemasCount: schemas.length,
+          applicationsCount: apps.length
         });
+      }
+
+      // API: OpenAPI 3.0 Specification
+      if (pathname === '/api/v1/openapi.json' && method === 'GET') {
+        return sendJson(res, 200, getOpenApiSpecification());
       }
 
       // API: List schemas
@@ -734,4 +744,70 @@ function getStatusBadgeStyle(status: string): string {
     default:
       return 'background:#f6f8fa; color:#24292f;';
   }
+}
+
+export function getOpenApiSpecification(): Record<string, unknown> {
+  return {
+    openapi: '3.0.3',
+    info: {
+      title: 'CivicOS REST API',
+      version: '1.0.0',
+      description: 'API aperta per la gestione di procedimenti civici, modulistica e notifiche della PA.'
+    },
+    paths: {
+      '/health': {
+        get: {
+          summary: 'Health and operational status',
+          responses: { '200': { description: 'Service operational' } }
+        }
+      },
+      '/api/v1/schemas': {
+        get: {
+          summary: 'List available civic form schemas',
+          responses: { '200': { description: 'List of schemas' } }
+        }
+      },
+      '/api/v1/applications': {
+        get: {
+          summary: 'List or search civic applications',
+          parameters: [
+            { name: 'status', in: 'query', schema: { type: 'string' } },
+            { name: 'q', in: 'query', schema: { type: 'string' } }
+          ],
+          responses: { '200': { description: 'Applications list' } }
+        },
+        post: {
+          summary: 'Submit a new citizen application',
+          responses: {
+            '201': { description: 'Application submitted successfully' },
+            '422': { description: 'Validation errors' }
+          }
+        }
+      },
+      '/api/v1/applications/{id}/transition': {
+        post: {
+          summary: 'Transition an application to a new status',
+          responses: { '200': { description: 'Transition successful' } }
+        }
+      },
+      '/api/v1/applications/{id}/receipt': {
+        get: {
+          summary: 'Official protocol receipt (HTML / printable)',
+          responses: { '200': { description: 'HTML receipt' } }
+        }
+      },
+      '/api/v1/export': {
+        get: {
+          summary: 'Export applications in JSON, NDJSON or Open Data CSV',
+          responses: { '200': { description: 'Export stream' } }
+        }
+      },
+      '/api/v1/cpsv-ap': {
+        get: {
+          summary: 'European Core Public Service Vocabulary catalog in JSON-LD',
+          responses: { '200': { description: 'CPSV-AP catalog' } }
+        }
+      }
+    }
+  };
 }
