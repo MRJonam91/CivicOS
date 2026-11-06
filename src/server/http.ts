@@ -326,6 +326,31 @@ function renderDashboardHtml(schemas: any[], apps: any[], searchQuery?: string, 
     )
     .join('');
 
+  const countSubmitted = apps.filter(a => a.status === 'SUBMITTED').length;
+  const countInReview = apps.filter(a => a.status === 'IN_REVIEW' || a.status === 'INTEGRATION_REQUESTED').length;
+  const countApproved = apps.filter(a => a.status === 'APPROVED').length;
+  const countClosed = apps.filter(a => a.status === 'REJECTED' || a.status === 'CLOSED').length;
+
+  const metricsHtml = `
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:20px;">
+      <div style="background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:12px; text-align:center;">
+        <div style="font-size:22px; font-weight:bold; color:#0969da;">${countSubmitted}</div>
+        <div style="font-size:12px; color:#57609a; font-weight:600;">In Attesa Presa in Carico</div>
+      </div>
+      <div style="background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:12px; text-align:center;">
+        <div style="font-size:22px; font-weight:bold; color:#9a6700;">${countInReview}</div>
+        <div style="font-size:12px; color:#57609a; font-weight:600;">Istruttoria Attiva</div>
+      </div>
+      <div style="background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:12px; text-align:center;">
+        <div style="font-size:22px; font-weight:bold; color:#1a7f37;">${countApproved}</div>
+        <div style="font-size:12px; color:#57609a; font-weight:600;">Istanze Accolte</div>
+      </div>
+      <div style="background:#fff; border:1px solid #d0d7de; border-radius:6px; padding:12px; text-align:center;">
+        <div style="font-size:22px; font-weight:bold; color:#656d76;">${countClosed}</div>
+        <div style="font-size:12px; color:#57609a; font-weight:600;">Chiuse / Archiviate</div>
+      </div>
+    </div>`;
+
   const appRowsHtml =
     apps.length === 0
       ? '<tr><td colspan="6" style="padding:14px; text-align:center; color:#656d76;">Nessuna istanza civica trovata con i filtri selezionati. Compila uno dei moduli sopra per avviare un procedimento!</td></tr>'
@@ -388,6 +413,8 @@ function renderDashboardHtml(schemas: any[], apps: any[], searchQuery?: string, 
         <a class="btn" href="/api/v1/cpsv-ap" target="_blank" style="background:#f0f8ff; color:#0969da; border-color:#54aeff;">🇪🇺 CPSV-AP</a>
       </div>
     </div>
+
+    ${metricsHtml}
 
     <form method="GET" action="/" class="search-bar">
       <input type="text" name="q" placeholder="Cerca per codice pratica, richiedente, codice fiscale o email..." value="${escapeHtml(searchQuery || '')}" style="flex:1; padding:8px; border:1px solid #d0d7de; border-radius:6px; font-size:14px;">

@@ -40,6 +40,13 @@ export interface CivicAttachmentMetadata {
   uploadedAt: string;
 }
 
+export interface CivicStorageAdapter {
+  loadAll(): Promise<CitizenApplication[]>;
+  save(app: CitizenApplication): Promise<void>;
+  get(id: string): Promise<CitizenApplication | undefined>;
+  delete(id: string): Promise<boolean>;
+}
+
 export interface FormFieldDefinition {
   name: string;
   label: string;

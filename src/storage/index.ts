@@ -3,14 +3,9 @@
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { CitizenApplication } from '../core/types.ts';
+import type { CitizenApplication, CivicStorageAdapter } from '../core/types.ts';
 
-export interface CivicStorageAdapter {
-  loadAll(): Promise<CitizenApplication[]>;
-  save(app: CitizenApplication): Promise<void>;
-  get(id: string): Promise<CitizenApplication | undefined>;
-  delete(id: string): Promise<boolean>;
-}
+export type { CivicStorageAdapter };
 
 export class MemoryStorageAdapter implements CivicStorageAdapter {
   private store: Map<string, CitizenApplication> = new Map();

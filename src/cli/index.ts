@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Manoj Rollo (MRJonam91)
 
+import { readFileSync, existsSync } from 'node:fs';
 import { CivicEngine } from '../core/engine.ts';
 import { createCivicHttpServer } from '../server/http.ts';
+import { FileStorageAdapter } from '../storage/index.ts';
 import type { ApplicationStatus, ExportFormat } from '../core/types.ts';
 
 const SPONSOR_LINE = 'CivicOS is free & open source (Apache-2.0). Support the project: https://github.com/sponsors/MRJonam91';
@@ -23,32 +25,40 @@ Usage: civicos <command> [options]
 Commands:
   serve                 Start the embedded HTTP API & citizen portal
     --port <number>     Port to listen on (default: 3000)
+    --storage <file>    Persist applications to a JSON file (or CIVICOS_STORAGE env)
 
   schemas               List available civic form schemas
 
   submit                Submit a new citizen application
     --schema <id>       Schema identifier
-    --applicant <json>  Applicant details (fullName, email, taxCode, phone)
-    --data <json>       Form field data JSON
+    --applicant <json|@file>  Applicant details JSON or @file.json
+    --data <json|@file>       Form field data JSON or @file.json
+    --storage <file>    Persistent storage file
 
   list                  List submitted applications
     --status <status>   Filter by status (SUBMITTED, IN_REVIEW, APPROVED, etc.)
     --schema <id>       Filter by schema
     --search <query>    Search by name, email, fiscal code or ID
+    --storage <file>    Persistent storage file
 
   show <id>             Show application details and audit trail
+    --storage <file>    Persistent storage file
 
   receipt <id>          Generate and print official protocol receipt
+    --storage <file>    Persistent storage file
 
   transition <id>       Transition an application to a new status
     --to <status>       Target status
     --actor <name>      Name or role of officer/system
     --note <text>       Optional administrative note
+    --storage <file>    Persistent storage file
 
   verify <id>           Cryptographically verify the tamper-evident audit chain
+    --storage <file>    Persistent storage file
 
   export                Export applications
     --format <type>     Export format: json, csv, ndjson (default: json)
+    --storage <file>    Persistent storage file
 
 Options:
   -h, --help            Show this help message
@@ -57,6 +67,27 @@ Options:
 Sponsor & Support:
   ${SPONSOR_LINE}
 `);
+}
+
+function parseJsonOrFile(input: string, fieldName: string): any {
+  let content = input.trim();
+  if (content.startsWith('@')) {
+    const filePath = content.slice(1);
+    if (!existsSync(filePath)) {
+      throw new Error(`File not found for ${fieldName}: ${filePath}`);
+    }
+    content = readFileSync(filePath, 'utf-8');
+  } else if (content.endsWith('.json') && existsSync(content)) {
+    content = readFileSync(content, 'utf-8');
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch (err: any) {
+    throw new Error(
+      `Invalid JSON for ${fieldName}. Provide inline JSON or pass a file using @filename.json (Error: ${err.message})`
+    );
+  }
 }
 
 async function main() {
@@ -72,7 +103,17 @@ async function main() {
   }
 
   const command = args[0];
-  const engine = new CivicEngine();
+
+  // Resolve storage path
+  const storageIdx = args.indexOf('--storage');
+  const storagePath =
+    (storageIdx !== -1 ? args[storageIdx + 1] : undefined) ||
+    process.env.CIVICOS_STORAGE ||
+    undefined;
+
+  const storage = storagePath ? new FileStorageAdapter(storagePath) : undefined;
+  const engine = new CivicEngine({ storage });
+  await engine.init();
 
   switch (command) {
     case 'serve': {
@@ -87,6 +128,9 @@ async function main() {
         console.log(`CivicOS HTTP Server listening at http://localhost:${port}`);
         console.log(`Citizen Web Portal: http://localhost:${port}/`);
         console.log(`REST API Base:     http://localhost:${port}/api/v1/schemas`);
+        if (storagePath) {
+          console.log(`Persistent Storage: ${storagePath}`);
+        }
         console.log('Press Ctrl+C to terminate.');
       });
       break;
@@ -121,8 +165,8 @@ async function main() {
       const dataRaw = (dataIdx !== -1 ? args[dataIdx + 1] : undefined) || '{}';
 
       try {
-        const applicant = JSON.parse(applicantRaw);
-        const data = JSON.parse(dataRaw);
+        const applicant = parseJsonOrFile(applicantRaw, '--applicant');
+        const data = parseJsonOrFile(dataRaw, '--data');
 
         const result = await engine.submitApplication({ schemaId, applicant, data });
         if (!result.success) {

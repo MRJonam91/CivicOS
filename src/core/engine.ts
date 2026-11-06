@@ -35,16 +35,28 @@ export interface SubmitApplicationInput {
 
 export interface CivicEngineOptions {
   registry?: SchemaRegistry;
+  storage?: import('./types.ts').CivicStorageAdapter;
 }
 
 export class CivicEngine {
   private registry: SchemaRegistry;
   private applications: Map<string, CitizenApplication> = new Map();
   private dispatcher: NotificationDispatcher;
+  private storage?: import('./types.ts').CivicStorageAdapter;
 
   constructor(options?: CivicEngineOptions) {
     this.registry = options?.registry || new SchemaRegistry();
     this.dispatcher = new NotificationDispatcher();
+    this.storage = options?.storage;
+  }
+
+  public async init(): Promise<void> {
+    if (this.storage) {
+      const stored = await this.storage.loadAll();
+      for (const item of stored) {
+        this.applications.set(item.id, item);
+      }
+    }
   }
 
   public getRegistry(): SchemaRegistry {
@@ -146,6 +158,9 @@ export class CivicEngine {
     };
 
     this.applications.set(id, app);
+    if (this.storage) {
+      await this.storage.save(app);
+    }
 
     const channels = input.notifyChannels || ['email', 'io_mock'];
     const notifications = await this.dispatcher.notifyCitizen(app, channels);
@@ -217,6 +232,9 @@ export class CivicEngine {
     }
 
     LifecycleManager.transition(app, nextStatus, actor, note);
+    if (this.storage) {
+      await this.storage.save(app);
+    }
 
     const channels = notifyChannels || ['email', 'io_mock'];
     const notifications = await this.dispatcher.notifyCitizen(app, channels);

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Production Stable Release v1.0.0**: General Availability for public bodies, municipal entities, and civic tech developers.
+- **CLI Persistence & File Input (`@file.json`)**: Added support for persistent file storage (`--storage <file>` or `CIVICOS_STORAGE` env) and direct file argument loading (`@data.json`), ensuring seamless CLI workflow across invocations.
+- **Storage Lifecycle Integration in `CivicEngine`**: First-class async storage hooks saving and loading procedure states automatically across engine lifecycles.
+- **Web Dashboard Operational Metrics**: Added KPI cards in the citizen portal dashboard displaying real-time counts for pending, active, approved, and archived applications.
 - **OpenAPI 3.0.3 Specification**: Dynamic specification exposed at `/api/v1/openapi.json` for seamless API discovery, Swagger integration, and PDND (Piattaforma Digitale Nazionale Dati) ingestion.
 - **Enhanced Health & Observability Metrics**: Real-time metrics including process uptime, active schema count, and total managed procedures at `GET /health`.
 - **European CPSV-AP Standard (Core Public Service Vocabulary Application Profile)**: Full JSON-LD mapping and catalog export (`/api/v1/cpsv-ap` and `/api/v1/schemas/:id/cpsv-ap`) enabling seamless interoperability with EU and AgID public service catalogs.
