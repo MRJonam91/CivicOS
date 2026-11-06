@@ -9,5 +9,7 @@ export * from './core/audit.ts';
 export * from './core/lifecycle.ts';
 export * from './core/notifications.ts';
 export * from './core/export.ts';
+export * from './core/receipt.ts';
 export * from './core/engine.ts';
+export * from './storage/index.ts';
 export * from './server/http.ts';

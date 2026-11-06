@@ -19,7 +19,7 @@ test('NotificationDispatcher dispatches to multiple channels and logs history', 
       fullName: 'Giulia Bianchi',
       email: 'giulia.bianchi@example.com',
       phone: '+393331234567',
-      taxCode: 'BNCGLI90A41H501U'
+      taxCode: 'BNCGLI90A41H501E'
     },
     data: {},
     history: [],

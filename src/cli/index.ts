@@ -17,7 +17,7 @@ function printSponsorMaybe(): void {
 
 function printHelp(): void {
   console.log(`
-CivicOS — Standalone Civic Forms, Procedures & Notifications Engine
+CivicOS — Standalone Civic Forms, Procedures & Notifications Engine (v0.2.0-beta)
 Usage: civicos <command> [options]
 
 Commands:
@@ -34,8 +34,11 @@ Commands:
   list                  List submitted applications
     --status <status>   Filter by status (SUBMITTED, IN_REVIEW, APPROVED, etc.)
     --schema <id>       Filter by schema
+    --search <query>    Search by name, email, fiscal code or ID
 
   show <id>             Show application details and audit trail
+
+  receipt <id>          Generate and print official protocol receipt
 
   transition <id>       Transition an application to a new status
     --to <status>       Target status
@@ -64,7 +67,7 @@ async function main() {
   }
 
   if (args.includes('-v') || args.includes('--version')) {
-    console.log('CivicOS v0.1.0');
+    console.log('CivicOS v0.2.0-beta');
     return;
   }
 
@@ -143,6 +146,7 @@ async function main() {
     case 'list': {
       let status: ApplicationStatus | undefined;
       let schemaId: string | undefined;
+      let searchQuery: string | undefined;
 
       const sIdx = args.indexOf('--status');
       if (sIdx !== -1 && args[sIdx + 1]) status = args[sIdx + 1] as ApplicationStatus;
@@ -150,7 +154,10 @@ async function main() {
       const schIdx = args.indexOf('--schema');
       if (schIdx !== -1 && args[schIdx + 1]) schemaId = args[schIdx + 1];
 
-      const list = engine.listApplications({ status, schemaId });
+      const qIdx = args.indexOf('--search');
+      if (qIdx !== -1 && args[qIdx + 1]) searchQuery = args[qIdx + 1];
+
+      const list = engine.listApplications({ status, schemaId, searchQuery });
       console.log(JSON.stringify(list, null, 2));
       printSponsorMaybe();
       break;
@@ -169,6 +176,23 @@ async function main() {
       }
       console.log(JSON.stringify(app, null, 2));
       printSponsorMaybe();
+      break;
+    }
+
+    case 'receipt': {
+      const id = args[1];
+      if (!id) {
+        console.error('Usage: civicos receipt <applicationId>');
+        process.exit(1);
+      }
+      try {
+        const html = engine.getReceiptHtml(id);
+        console.log(html);
+        printSponsorMaybe();
+      } catch (err) {
+        console.error(`Receipt generation failed: ${(err as Error).message}`);
+        process.exit(1);
+      }
       break;
     }
 

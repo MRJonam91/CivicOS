@@ -3,7 +3,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { CivicEngine } from '../core/engine.ts';
-import type { ApplicationStatus, ExportFormat, NotificationChannel } from '../core/types.ts';
+import type { ApplicationFilterOptions, ApplicationStatus, ExportFormat, NotificationChannel } from '../core/types.ts';
 
 export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -28,7 +28,7 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
         return sendJson(res, 200, {
           status: 'ok',
           service: 'civicos',
-          version: '0.1.0',
+          version: '0.2.0',
           timestamp: new Date().toISOString()
         });
       }
@@ -53,8 +53,9 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
         const format = (parsedUrl.searchParams.get('format') || 'json') as ExportFormat;
         const status = (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined;
         const schemaId = parsedUrl.searchParams.get('schemaId') || undefined;
+        const searchQuery = parsedUrl.searchParams.get('q') || undefined;
 
-        const content = engine.export(format, { status, schemaId });
+        const content = engine.export(format, { status, schemaId, searchQuery });
         let contentType = 'application/json';
         if (format === 'csv') contentType = 'text/csv; charset=utf-8';
         if (format === 'ndjson') contentType = 'application/x-ndjson';
@@ -64,11 +65,19 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
         return;
       }
 
-      // API: List applications
+      // API: List applications with advanced filters
       if (pathname === '/api/v1/applications' && method === 'GET') {
-        const status = (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined;
-        const schemaId = parsedUrl.searchParams.get('schemaId') || undefined;
-        const list = engine.listApplications({ status, schemaId });
+        const filter: ApplicationFilterOptions = {
+          status: (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined,
+          schemaId: parsedUrl.searchParams.get('schemaId') || undefined,
+          searchQuery: parsedUrl.searchParams.get('q') || undefined,
+          fromDate: parsedUrl.searchParams.get('from') || undefined,
+          toDate: parsedUrl.searchParams.get('to') || undefined,
+          sortBy: (parsedUrl.searchParams.get('sortBy') || undefined) as any,
+          sortDirection: (parsedUrl.searchParams.get('sortDir') || undefined) as any
+        };
+
+        const list = engine.listApplications(filter);
         return sendJson(res, 200, { count: list.length, applications: list });
       }
 
@@ -83,6 +92,7 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
           schemaId: body.schemaId,
           applicant: body.applicant,
           data: body.data,
+          attachments: body.attachments,
           notifyChannels: body.notifyChannels as NotificationChannel[]
         });
 
@@ -138,7 +148,39 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
         }
       }
 
-      // API: Get application detail
+      // API: Get printable official receipt HTML
+      if (pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/receipt$/) && method === 'GET') {
+        const matches = pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/receipt$/);
+        const id = matches?.[1];
+        if (!id) {
+          return sendJson(res, 400, { error: 'Invalid application ID in URL' });
+        }
+        try {
+          const receiptHtml = engine.getReceiptHtml(id);
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(receiptHtml);
+          return;
+        } catch (err) {
+          return sendJson(res, 404, { error: (err as Error).message });
+        }
+      }
+
+      // UI: Direct web page for receipt
+      if (pathname.startsWith('/receipts/') && method === 'GET') {
+        const id = pathname.replace('/receipts/', '');
+        try {
+          const receiptHtml = engine.getReceiptHtml(id);
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(receiptHtml);
+          return;
+        } catch (err) {
+          res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<h1>404 — Pratica non trovata</h1><p>${(err as Error).message}</p><p><a href="/">Torna alla Home</a></p>`);
+          return;
+        }
+      }
+
+      // API: Get application detail JSON
       if (pathname.startsWith('/api/v1/applications/') && method === 'GET') {
         const id = pathname.replace('/api/v1/applications/', '');
         const app = engine.getApplication(id);
@@ -146,6 +188,22 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
           return sendJson(res, 404, { error: `Application ${id} not found` });
         }
         return sendJson(res, 200, { application: app });
+      }
+
+      // UI: Application Detail and Case Management page
+      if (pathname.startsWith('/applications/') && method === 'GET') {
+        const id = pathname.replace('/applications/', '');
+        const app = engine.getApplication(id);
+        if (!app) {
+          res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end('<h1>404 — Pratica non trovata</h1><p><a href="/">Torna alla Dashboard</a></p>');
+          return;
+        }
+        const schema = engine.getRegistry().get(app.schemaId);
+        const auditStatus = engine.verifyApplicationAudit(id);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderApplicationDetailHtml(app, schema, auditStatus));
+        return;
       }
 
       // API: Notifications history
@@ -170,9 +228,11 @@ export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
       // UI: Web Portal Dashboard
       if (pathname === '/' && method === 'GET') {
         const schemas = engine.getRegistry().list();
-        const apps = engine.listApplications();
+        const searchQuery = parsedUrl.searchParams.get('q') || undefined;
+        const statusFilter = (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined;
+        const apps = engine.listApplications({ searchQuery, status: statusFilter });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderDashboardHtml(schemas, apps));
+        res.end(renderDashboardHtml(schemas, apps, searchQuery, statusFilter));
         return;
       }
 
@@ -211,7 +271,7 @@ function parseJsonBody(req: IncomingMessage): Promise<any> {
   });
 }
 
-function renderDashboardHtml(schemas: any[], apps: any[]): string {
+function renderDashboardHtml(schemas: any[], apps: any[], searchQuery?: string, statusFilter?: string): string {
   const schemaListHtml = schemas
     .map(
       s => `
@@ -232,12 +292,12 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
 
   const appRowsHtml =
     apps.length === 0
-      ? '<tr><td colspan="6" style="padding:14px; text-align:center; color:#656d76;">Nessuna istanza civica ancora presentata. Compila uno dei moduli sopra per avviare un procedimento!</td></tr>'
+      ? '<tr><td colspan="6" style="padding:14px; text-align:center; color:#656d76;">Nessuna istanza civica trovata con i filtri selezionati. Compila uno dei moduli sopra per avviare un procedimento!</td></tr>'
       : apps
           .map(
             a => `
     <tr style="border-bottom:1px solid #e1e4e8;">
-      <td style="padding:10px; font-family:monospace; font-weight:bold; color:#0969da;">${escapeHtml(a.id)}</td>
+      <td style="padding:10px; font-family:monospace; font-weight:bold;"><a href="/applications/${escapeHtml(a.id)}" style="color:#0969da; text-decoration:none;">${escapeHtml(a.id)}</a></td>
       <td style="padding:10px;">${escapeHtml(a.schemaId)}</td>
       <td style="padding:10px;">${escapeHtml(a.applicant.fullName)} (${escapeHtml(a.applicant.taxCode || 'N/A')})</td>
       <td style="padding:10px;">
@@ -245,7 +305,8 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
       </td>
       <td style="padding:10px; font-size:13px; color:#57609a;">Scadenza: ${escapeHtml(a.dueDate)}</td>
       <td style="padding:10px;">
-        <a href="/api/v1/applications/${escapeHtml(a.id)}" target="_blank" style="color:#0969da; text-decoration:none; font-size:13px;">Dettagli JSON &rarr;</a>
+        <a href="/applications/${escapeHtml(a.id)}" style="color:#0969da; text-decoration:none; font-size:13px; font-weight:600; margin-right:8px;">Fascicolo &rarr;</a>
+        <a href="/receipts/${escapeHtml(a.id)}" target="_blank" style="color:#1f883d; text-decoration:none; font-size:13px;">Ricevuta</a>
       </td>
     </tr>`
           )
@@ -259,7 +320,7 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
   <title>CivicOS — Sportello Telematico e Modulistica Civica</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:#f6f8fa; margin:0; padding:24px; color:#1f2328; }
-    .container { max-width: 960px; margin: 0 auto; }
+    .container { max-width: 980px; margin: 0 auto; }
     header { background:#0969da; color:#ffffff; padding:20px; border-radius:8px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
     h1 { margin:0 0 6px 0; font-size:24px; }
     h2 { font-size:18px; margin-top:28px; margin-bottom:14px; border-bottom:2px solid #e1e4e8; padding-bottom:6px; }
@@ -268,6 +329,7 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
     .export-bar { margin: 12px 0; display:flex; gap:10px; align-items:center; }
     .btn { display:inline-block; padding:6px 12px; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600; border:1px solid #d0d7de; background:#f6f8fa; color:#24292f; }
     .btn:hover { background:#eaeef2; }
+    .search-bar { background:#fff; padding:12px; border-radius:6px; border:1px solid #d0d7de; margin-bottom:16px; display:flex; gap:10px; align-items:center; }
   </style>
 </head>
 <body>
@@ -281,7 +343,7 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
     ${schemaListHtml}
 
     <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-      <h2>📁 Istanze e Procedimenti Amministrativi</h2>
+      <h2>📁 Istanze e Procedimenti Amministrativi (${apps.length})</h2>
       <div class="export-bar">
         <span style="font-size:13px; color:#57609a;">Export dati:</span>
         <a class="btn" href="/api/v1/export?format=json" target="_blank">JSON</a>
@@ -289,6 +351,21 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
         <a class="btn" href="/api/v1/export?format=ndjson" target="_blank">NDJSON</a>
       </div>
     </div>
+
+    <form method="GET" action="/" class="search-bar">
+      <input type="text" name="q" placeholder="Cerca per codice pratica, richiedente, codice fiscale o email..." value="${escapeHtml(searchQuery || '')}" style="flex:1; padding:8px; border:1px solid #d0d7de; border-radius:6px; font-size:14px;">
+      <select name="status" style="padding:8px; border:1px solid #d0d7de; border-radius:6px; font-size:14px;">
+        <option value="">Tutti gli stati</option>
+        <option value="SUBMITTED" ${statusFilter === 'SUBMITTED' ? 'selected' : ''}>SUBMITTED</option>
+        <option value="IN_REVIEW" ${statusFilter === 'IN_REVIEW' ? 'selected' : ''}>IN_REVIEW</option>
+        <option value="INTEGRATION_REQUESTED" ${statusFilter === 'INTEGRATION_REQUESTED' ? 'selected' : ''}>INTEGRATION_REQUESTED</option>
+        <option value="APPROVED" ${statusFilter === 'APPROVED' ? 'selected' : ''}>APPROVED</option>
+        <option value="REJECTED" ${statusFilter === 'REJECTED' ? 'selected' : ''}>REJECTED</option>
+        <option value="CLOSED" ${statusFilter === 'CLOSED' ? 'selected' : ''}>CLOSED</option>
+      </select>
+      <button type="submit" class="btn" style="background:#0969da; color:#fff; border-color:#0969da; cursor:pointer;">Filtra</button>
+      <a href="/" class="btn">Reset</a>
+    </form>
 
     <table>
       <thead>
@@ -298,7 +375,7 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
           <th>Richiedente</th>
           <th>Stato</th>
           <th>SLA Procedimento</th>
-          <th>Azione</th>
+          <th>Azioni</th>
         </tr>
       </thead>
       <tbody>
@@ -306,6 +383,158 @@ function renderDashboardHtml(schemas: any[], apps: any[]): string {
       </tbody>
     </table>
   </div>
+</body>
+</html>`;
+}
+
+function renderApplicationDetailHtml(app: any, schema: any, auditStatus: any): string {
+  const auditBadge = auditStatus.valid
+    ? `<span style="background:#dafbe1; color:#1a7f37; border:1px solid #4ac26b; padding:4px 8px; border-radius:12px; font-size:12px; font-weight:bold;">✓ Catena Crittografica Integra (SHA-256 Verified)</span>`
+    : `<span style="background:#ffebe9; color:#cf222e; border:1px solid #ff8182; padding:4px 8px; border-radius:12px; font-size:12px; font-weight:bold;">✗ Catena Compromessa</span>`;
+
+  const timelineHtml = app.history
+    .map(
+      (h: any) => `
+    <li style="margin-bottom:12px;">
+      <strong style="color:#0969da;">${escapeHtml(h.status)}</strong> &bull; <span style="font-size:12px; color:#57609a;">${escapeHtml(h.timestamp)}</span><br>
+      <span style="font-size:13px; color:#24292f;">Attore: <code>${escapeHtml(h.actor)}</code></span>
+      ${h.note ? `<div style="font-size:13px; color:#57609a; margin-top:2px; font-style:italic;">Nota: "${escapeHtml(h.note)}"</div>` : ''}
+    </li>`
+    )
+    .join('');
+
+  const auditBlocksHtml = app.auditTrail
+    .map(
+      (b: any) => `
+    <div style="font-family:monospace; font-size:12px; background:#f6f8fa; border:1px solid #d0d7de; padding:8px; border-radius:4px; margin-bottom:6px;">
+      Block #${b.sequence} &bull; ${escapeHtml(b.action)} &bull; ${escapeHtml(b.performedBy)}<br>
+      Hash: <span style="color:#0969da;">${escapeHtml(b.hash)}</span><br>
+      Prev: <span style="color:#656d76;">${escapeHtml(b.previousHash)}</span>
+    </div>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>Fascicolo Pratica ${escapeHtml(app.id)} — CivicOS</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; margin:0; padding:24px; color:#1f2328; }
+    .card { max-width: 860px; margin: 0 auto; background:#fff; padding:24px; border-radius:8px; border:1px solid #d0d7de; }
+    h1 { font-size:22px; color:#0969da; margin:0; }
+    .header-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid #e1e4e8; padding-bottom:12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:20px; }
+    .section { border:1px solid #e1e4e8; border-radius:6px; padding:16px; }
+    .btn { display:inline-block; padding:8px 14px; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600; cursor:pointer; }
+    .btn-primary { background:#0969da; color:#fff; border:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="margin-bottom:12px; display:flex; justify-content:space-between;">
+      <a href="/" style="color:#0969da; text-decoration:none; font-size:14px;">&larr; Torna alla Dashboard</a>
+      <a href="/receipts/${escapeHtml(app.id)}" target="_blank" class="btn" style="background:#1f883d; color:#fff;">🖨️ Stampa Ricevuta Ufficiale</a>
+    </div>
+
+    <div class="header-row">
+      <div>
+        <h1>Fascicolo: ${escapeHtml(app.id)}</h1>
+        <div style="font-size:14px; color:#57609a; margin-top:4px;">Servizio: ${escapeHtml(schema ? schema.title : app.schemaId)}</div>
+      </div>
+      <div>
+        ${auditBadge}
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="section">
+        <h3 style="margin-top:0; font-size:15px; color:#24292f;">Dati del Procedimento</h3>
+        <p style="font-size:13px; margin:4px 0;"><strong>Richiedente:</strong> ${escapeHtml(app.applicant.fullName)}</p>
+        <p style="font-size:13px; margin:4px 0;"><strong>Codice Fiscale:</strong> <code>${escapeHtml(app.applicant.taxCode || 'N/A')}</code></p>
+        <p style="font-size:13px; margin:4px 0;"><strong>Email:</strong> ${escapeHtml(app.applicant.email)}</p>
+        <p style="font-size:13px; margin:4px 0;"><strong>Stato Attuale:</strong> <span style="font-weight:bold; ${getStatusBadgeStyle(app.status)} padding:2px 6px; border-radius:10px;">${escapeHtml(app.status)}</span></p>
+        <p style="font-size:13px; margin:4px 0;"><strong>Termine Conclusione (SLA):</strong> ${escapeHtml(app.dueDate)}</p>
+      </div>
+
+      <div class="section">
+        <h3 style="margin-top:0; font-size:15px; color:#24292f;">Azione Istruttoria (Operatore PA)</h3>
+        <form id="transitionForm">
+          <div style="margin-bottom:8px;">
+            <label style="display:block; font-size:12px; font-weight:600;">Nuovo Stato:</label>
+            <select name="status" style="width:100%; padding:6px; border:1px solid #d0d7de; border-radius:4px;">
+              <option value="IN_REVIEW">IN_REVIEW (Presa in carico)</option>
+              <option value="INTEGRATION_REQUESTED">INTEGRATION_REQUESTED (Richiesta integrazioni)</option>
+              <option value="APPROVED">APPROVED (Accoglimento con esito favorevole)</option>
+              <option value="REJECTED">REJECTED (Diniego / Esito negativo)</option>
+              <option value="CLOSED">CLOSED (Chiusura procedimento)</option>
+            </select>
+          </div>
+          <div style="margin-bottom:8px;">
+            <label style="display:block; font-size:12px; font-weight:600;">Operatore / Istruttore:</label>
+            <input type="text" name="actor" required value="officer:Istruttore" style="width:100%; padding:6px; border:1px solid #d0d7de; border-radius:4px;">
+          </div>
+          <div style="margin-bottom:8px;">
+            <label style="display:block; font-size:12px; font-weight:600;">Note Istruttorie:</label>
+            <input type="text" name="note" placeholder="es. Requisiti verificati con esito positivo..." style="width:100%; padding:6px; border:1px solid #d0d7de; border-radius:4px;">
+          </div>
+          <button type="submit" class="btn btn-primary">Registra Transizione &rarr;</button>
+          <span id="transFeedback" style="font-size:12px; margin-left:8px;"></span>
+        </form>
+      </div>
+    </div>
+
+    <div class="section" style="margin-bottom:16px;">
+      <h3 style="margin-top:0; font-size:15px; color:#24292f;">Dichiarazioni rese nel Modulo:</h3>
+      <pre style="background:#f6f8fa; padding:12px; border-radius:6px; font-size:13px; overflow:auto;">${escapeHtml(JSON.stringify(app.data, null, 2))}</pre>
+    </div>
+
+    <div class="section" style="margin-bottom:16px;">
+      <h3 style="margin-top:0; font-size:15px; color:#24292f;">Cronologia del Procedimento (Timeline)</h3>
+      <ul style="padding-left:20px; margin:0;">
+        ${timelineHtml}
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3 style="margin-top:0; font-size:15px; color:#24292f;">Registro Immutabile di Audit (SHA-256 Hash Chain)</h3>
+      ${auditBlocksHtml}
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('transitionForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const fb = document.getElementById('transFeedback');
+      fb.style.color = '#57609a';
+      fb.textContent = 'Aggiornamento in corso...';
+      const formData = new FormData(this);
+
+      try {
+        const res = await fetch('/api/v1/applications/${escapeHtml(app.id)}/transition', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: formData.get('status'),
+            actor: formData.get('actor'),
+            note: formData.get('note')
+          })
+        });
+        const json = await res.json();
+        if (res.ok) {
+          fb.style.color = '#1f883d';
+          fb.textContent = 'Stato aggiornato!';
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          fb.style.color = '#cf222e';
+          fb.textContent = 'Errore: ' + (json.error || 'Operazione non consentita');
+        }
+      } catch (err) {
+        fb.style.color = '#cf222e';
+        fb.textContent = 'Errore di connessione.';
+      }
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -375,7 +604,7 @@ function renderFormHtml(schema: any): string {
         </div>
         <div style="margin-bottom:10px;">
           <label style="display:block; font-size:13px; font-weight:600;">Codice Fiscale *</label>
-          <input type="text" name="applicant_taxCode" required style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="RSSMRA85M01H501Z">
+          <input type="text" name="applicant_taxCode" required style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="RSSMRA85M01H501Q">
         </div>
         <div style="margin-bottom:10px;">
           <label style="display:block; font-size:13px; font-weight:600;">Email / PEC per notifiche *</label>
@@ -436,7 +665,7 @@ function renderFormHtml(schema: any): string {
         if (res.ok) {
           fb.style.color = '#1f883d';
           fb.innerHTML = 'Istanza inviata con successo! Protocollo: <strong>' + json.application.id + '</strong>. Reindirizzamento...';
-          setTimeout(() => { window.location.href = '/'; }, 2000);
+          setTimeout(() => { window.location.href = '/applications/' + json.application.id; }, 1500);
         } else {
           fb.style.color = '#cf222e';
           fb.textContent = 'Errore validazione: ' + (json.validation ? json.validation.errors.map(e => e.message).join('; ') : json.error);

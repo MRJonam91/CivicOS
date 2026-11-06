@@ -31,7 +31,7 @@ export const DEFAULT_SCHEMAS: CivicFormSchema[] = [
         name: 'studentFiscalCode',
         label: 'Codice Fiscale dell’Alunno/a',
         type: 'fiscal_code',
-        placeholder: 'RSSMRA15A01L219X',
+        placeholder: 'RSSMRA15A01L219Y',
         required: true
       },
       {
@@ -79,7 +79,11 @@ export const DEFAULT_SCHEMAS: CivicFormSchema[] = [
         type: 'number',
         placeholder: '12500',
         required: false,
-        validation: { min: 0, max: 100000 }
+        validation: {
+          min: 0,
+          max: 100000,
+          dependsOn: { field: 'hasIseeDiscount', equals: true }
+        }
       },
       {
         name: 'notes',

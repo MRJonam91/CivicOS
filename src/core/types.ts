@@ -25,6 +25,19 @@ export interface FieldValidationRule {
   maxLength?: number;
   pattern?: string;
   customValidator?: string;
+  dependsOn?: {
+    field: string;
+    equals: unknown;
+  };
+}
+
+export interface CivicAttachmentMetadata {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256Hash: string;
+  uploadedAt: string;
 }
 
 export interface FormFieldDefinition {
@@ -86,6 +99,7 @@ export interface CitizenApplication {
     taxCode?: string; // Codice Fiscale
   };
   data: Record<string, unknown>;
+  attachments?: CivicAttachmentMetadata[];
   history: Array<{
     status: ApplicationStatus;
     timestamp: string;
@@ -93,6 +107,16 @@ export interface CitizenApplication {
     note?: string;
   }>;
   auditTrail: AuditEntry[];
+}
+
+export interface ApplicationFilterOptions {
+  status?: ApplicationStatus;
+  schemaId?: string;
+  searchQuery?: string; // match in applicant name, email, taxCode or app ID
+  fromDate?: string; // ISO date YYYY-MM-DD
+  toDate?: string; // ISO date YYYY-MM-DD
+  sortBy?: 'submittedAt' | 'dueDate' | 'status';
+  sortDirection?: 'asc' | 'desc';
 }
 
 export type NotificationChannel = 'email' | 'sms' | 'webhook' | 'io_mock';

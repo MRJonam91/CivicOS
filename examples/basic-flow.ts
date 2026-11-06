@@ -12,12 +12,12 @@ async function run() {
     applicant: {
       fullName: 'Elena Ferrari',
       email: 'elena.ferrari@example.com',
-      taxCode: 'FRRLNE88M45L219Z',
+      taxCode: 'FRRLNE88M45L219R',
       phone: '+39 347 1122334'
     },
     data: {
       studentFullName: 'Matteo Ferrari',
-      studentFiscalCode: 'FRRMTT17A01L219X',
+      studentFiscalCode: 'FRRMTT17A01L219Z',
       schoolName: 'scuola_rodari',
       schoolClass: '2A',
       specialDiet: 'celiachia',

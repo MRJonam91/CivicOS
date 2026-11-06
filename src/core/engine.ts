@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Manoj Rollo (MRJonam91)
 
 import type {
+  ApplicationFilterOptions,
   ApplicationStatus,
+  CivicAttachmentMetadata,
   CitizenApplication,
-  CivicFormSchema,
   ExportFormat,
   NotificationChannel,
   NotificationDeliveryRecord,
@@ -16,6 +17,7 @@ import { LifecycleManager } from './lifecycle.ts';
 import { AuditChain, GENESIS_PREVIOUS_HASH } from './audit.ts';
 import { NotificationDispatcher } from './notifications.ts';
 import { InteroperabilityExporter } from './export.ts';
+import { ReceiptGenerator } from './receipt.ts';
 
 export interface SubmitApplicationInput {
   schemaId: string;
@@ -26,7 +28,12 @@ export interface SubmitApplicationInput {
     taxCode?: string;
   };
   data: Record<string, unknown>;
+  attachments?: CivicAttachmentMetadata[];
   notifyChannels?: NotificationChannel[];
+}
+
+export interface CivicEngineOptions {
+  registry?: SchemaRegistry;
 }
 
 export class CivicEngine {
@@ -34,8 +41,8 @@ export class CivicEngine {
   private applications: Map<string, CitizenApplication> = new Map();
   private dispatcher: NotificationDispatcher;
 
-  constructor(registry: SchemaRegistry = new SchemaRegistry()) {
-    this.registry = registry;
+  constructor(options?: CivicEngineOptions) {
+    this.registry = options?.registry || new SchemaRegistry();
     this.dispatcher = new NotificationDispatcher();
   }
 
@@ -90,7 +97,8 @@ export class CivicEngine {
       {
         schemaId: schema.id,
         schemaCode: schema.code,
-        slaDays: schema.slaDays
+        slaDays: schema.slaDays,
+        attachmentsCount: input.attachments?.length || 0
       },
       nowIso
     );
@@ -109,6 +117,7 @@ export class CivicEngine {
         taxCode: input.applicant.taxCode
       },
       data: { ...input.data },
+      attachments: input.attachments ? [...input.attachments] : [],
       history: [
         {
           status: 'SUBMITTED',
@@ -137,14 +146,42 @@ export class CivicEngine {
     return this.applications.get(id);
   }
 
-  public listApplications(filter?: { status?: ApplicationStatus; schemaId?: string }): CitizenApplication[] {
+  public listApplications(filter?: ApplicationFilterOptions): CitizenApplication[] {
     let list = Array.from(this.applications.values());
+
     if (filter?.status) {
       list = list.filter(a => a.status === filter.status);
     }
     if (filter?.schemaId) {
       list = list.filter(a => a.schemaId === filter.schemaId);
     }
+    if (filter?.searchQuery) {
+      const q = filter.searchQuery.toLowerCase().trim();
+      list = list.filter(a =>
+        a.id.toLowerCase().includes(q) ||
+        a.applicant.fullName.toLowerCase().includes(q) ||
+        a.applicant.email.toLowerCase().includes(q) ||
+        (a.applicant.taxCode && a.applicant.taxCode.toLowerCase().includes(q))
+      );
+    }
+    if (filter?.fromDate) {
+      list = list.filter(a => a.submittedAt >= filter.fromDate!);
+    }
+    if (filter?.toDate) {
+      list = list.filter(a => a.submittedAt.split('T')[0]! <= filter.toDate!);
+    }
+
+    if (filter?.sortBy) {
+      const dir = filter.sortDirection === 'desc' ? -1 : 1;
+      list.sort((a, b) => {
+        const valA = a[filter.sortBy!];
+        const valB = b[filter.sortBy!];
+        if (valA < valB) return -1 * dir;
+        if (valA > valB) return 1 * dir;
+        return 0;
+      });
+    }
+
     return list;
   }
 
@@ -182,7 +219,19 @@ export class CivicEngine {
     return AuditChain.verifyChain(app.auditTrail);
   }
 
-  public export(format: ExportFormat, filter?: { status?: ApplicationStatus; schemaId?: string }): string {
+  public getReceiptHtml(id: string): string {
+    const app = this.applications.get(id);
+    if (!app) {
+      throw new Error(`Pratica ${id} non trovata.`);
+    }
+    const schema = this.registry.get(app.schemaId);
+    if (!schema) {
+      throw new Error(`Schema ${app.schemaId} non trovato.`);
+    }
+    return ReceiptGenerator.generateHtmlReceipt(app, schema);
+  }
+
+  public export(format: ExportFormat, filter?: ApplicationFilterOptions): string {
     const apps = this.listApplications(filter);
     return InteroperabilityExporter.export(apps, format);
   }

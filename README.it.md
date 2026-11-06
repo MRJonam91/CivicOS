@@ -29,8 +29,10 @@ Ogni anno comuni ed enti pubblici duplicano e riacquistano gli stessi identici m
 ## 🏛️ La Soluzione: CivicOS
 
 CivicOS è un digital public good open source progettato per il riuso (art. 68-69 del Codice dell'Amministrazione Digitale):
-- **Schemi di Modulo Dichiarativi**: catalogo pronto all'uso (`iscrizione-mensa-scolastica`, `richiesta-occupazione-suolo-pubblico`, `segnalazione-manutenzione-urbana`) con validazione automatica di Codice Fiscale, date ISO, range e vincoli di compilazione.
+- **Schemi di Modulo Dichiarativi**: catalogo pronto all'uso (`iscrizione-mensa-scolastica`, `richiesta-occupazione-suolo-pubblico`, `segnalazione-manutenzione-urbana`) con validatore algoritmico ufficiale del Codice Fiscale (D.M. 23/12/1976), campi condizionali (`dependsOn`), coerenza cronologica date, range e vincoli di compilazione.
 - **Gestione Ciclo di Vita delle Istanze**: generazione identificativo univoco (`PRAT-YYYYMMDD-XXXX`), calcolo scadenze procedimentali SLA e macchina a stati finiti (`SUBMITTED` ➔ `IN_REVIEW` ➔ `INTEGRATION_REQUESTED` ➔ `APPROVED` / `REJECTED` ➔ `CLOSED`).
+- **Fascicolo Elettronico & Ricevuta Ufficiale**: interfaccia per istruttori PA (`/applications/:id`), consultazione fascicolo e ricevuta stampabile conforme al D.P.R. 445/2000 (`/receipts/:id`) con prova crittografica SHA-256.
+- **Storage Sovrano e Atomico**: zero database esterni obbligatori; supporto a `FileStorageAdapter` atomico (resiliente ai crash di sistema) e `MemoryStorageAdapter`.
 - **Catena di Audit Crittografica SHA-256**: ogni trasmissione e transizione istruttoria viene concatenata tramite hash immutabile (`prevHash`), assicurando trasparenza amministrativa e verificabilità immediata contro manomissioni.
 - **Dispatcher Notifiche Multi-canale**: template pronti per Email/PEC, SMS, Webhook gestionali e simulazione App IO / SEND.
 - **Zero Dipendenze Runtime**: sviluppato interamente con moduli standard di Node.js (`node:http`, `node:crypto`).
