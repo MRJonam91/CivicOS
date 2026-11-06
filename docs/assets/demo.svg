@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1117" />
+      <stop offset="100%" stop-color="#161b22" />
+    </linearGradient>
+  </defs>
+  <rect width="850" height="480" rx="10" fill="url(#bg)" />
+  <!-- Window Controls -->
+  <circle cx="28" cy="24" r="6" fill="#ff5f56" />
+  <circle cx="48" cy="24" r="6" fill="#ffbd2e" />
+  <circle cx="68" cy="24" r="6" fill="#27c93f" />
+  <text x="425" y="28" fill="#8b949e" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, monospace" font-size="13" text-anchor="middle" font-weight="bold">civicos — bash (80x24)</text>
+
+  <!-- Content -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="13" fill="#e6edf3">
+    <text x="32" y="70" fill="#7ee787">$ npx civicos submit --schema iscrizione-mensa-scolastica --applicant '{"fullName":"Elena Ferrari"}'</text>
+    <text x="32" y="96" fill="#58a6ff">[CivicOS] Form schema: EDU-MNS-01 (Iscrizione Refezione Scolastica)</text>
+    <text x="32" y="118" fill="#3fb950">✓ Validation passed (16-char Fiscal Code, School Class, ISEE valid)</text>
+    <text x="32" y="140" fill="#f0883e">✓ Protocol ID: PRAT-20261106-4786 | SLA Due Date: 2026-12-06 (30 days ex L.241/90)</text>
+    <text x="32" y="162" fill="#d29922">✓ Dispatching citizen notification: [Email] elena.ferrari@example.com</text>
+    <text x="32" y="184" fill="#d29922">✓ Dispatching civic notification:   [App IO Mock] SEND Digital Notification</text>
+
+    <text x="32" y="224" fill="#7ee787">$ npx civicos transition PRAT-20261106-4786 --to IN_REVIEW --actor "officer:Dott. Bianchi"</text>
+    <text x="32" y="246" fill="#58a6ff">[Lifecycle] Status changed: SUBMITTED ──► IN_REVIEW</text>
+    <text x="32" y="268" fill="#3fb950">✓ SHA-256 Tamper-evident Audit Block #2 generated: 9fa1c74...</text>
+
+    <text x="32" y="308" fill="#7ee787">$ npx civicos verify PRAT-20261106-4786</text>
+    <text x="32" y="330" fill="#3fb950">[PASS] Audit chain for PRAT-20261106-4786 is 100% intact and cryptographically verified.</text>
+
+    <text x="32" y="370" fill="#7ee787">$ npx civicos export --format csv</text>
+    <text x="32" y="392" fill="#8b949e">id,schemaId,status,submittedAt,dueDate,applicantName,auditHash</text>
+    <text x="32" y="412" fill="#e6edf3">"PRAT-20261106-4786","iscrizione-mensa-scolastica","IN_REVIEW","2026-11-06","2026-12-06",...</text>
+
+    <text x="32" y="450" fill="#8b949e">♥ CivicOS is free &amp; open source (Apache-2.0). Support: github.com/sponsors/MRJonam91</text>
+  </g>
+</svg>

@@ -1,0 +1,481 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Manoj Rollo (MRJonam91)
+
+import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { CivicEngine } from '../core/engine.ts';
+import type { ApplicationStatus, ExportFormat, NotificationChannel } from '../core/types.ts';
+
+export function createCivicHttpServer(engine: CivicEngine = new CivicEngine()) {
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const pathname = parsedUrl.pathname;
+    const method = req.method || 'GET';
+
+    // CORS headers for interoperability
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    try {
+      // Health check
+      if (pathname === '/health' && method === 'GET') {
+        return sendJson(res, 200, {
+          status: 'ok',
+          service: 'civicos',
+          version: '0.1.0',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // API: List schemas
+      if (pathname === '/api/v1/schemas' && method === 'GET') {
+        return sendJson(res, 200, { schemas: engine.getRegistry().list() });
+      }
+
+      // API: Get schema detail
+      if (pathname.startsWith('/api/v1/schemas/') && method === 'GET') {
+        const schemaId = pathname.replace('/api/v1/schemas/', '');
+        const schema = engine.getRegistry().get(schemaId);
+        if (!schema) {
+          return sendJson(res, 404, { error: `Schema "${schemaId}" not found` });
+        }
+        return sendJson(res, 200, { schema });
+      }
+
+      // API: Export applications
+      if (pathname === '/api/v1/export' && method === 'GET') {
+        const format = (parsedUrl.searchParams.get('format') || 'json') as ExportFormat;
+        const status = (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined;
+        const schemaId = parsedUrl.searchParams.get('schemaId') || undefined;
+
+        const content = engine.export(format, { status, schemaId });
+        let contentType = 'application/json';
+        if (format === 'csv') contentType = 'text/csv; charset=utf-8';
+        if (format === 'ndjson') contentType = 'application/x-ndjson';
+
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(content);
+        return;
+      }
+
+      // API: List applications
+      if (pathname === '/api/v1/applications' && method === 'GET') {
+        const status = (parsedUrl.searchParams.get('status') || undefined) as ApplicationStatus | undefined;
+        const schemaId = parsedUrl.searchParams.get('schemaId') || undefined;
+        const list = engine.listApplications({ status, schemaId });
+        return sendJson(res, 200, { count: list.length, applications: list });
+      }
+
+      // API: Submit application
+      if (pathname === '/api/v1/applications' && method === 'POST') {
+        const body = await parseJsonBody(req);
+        if (!body.schemaId || !body.applicant || !body.data) {
+          return sendJson(res, 400, { error: 'Missing required parameters: schemaId, applicant, data' });
+        }
+
+        const result = await engine.submitApplication({
+          schemaId: body.schemaId,
+          applicant: body.applicant,
+          data: body.data,
+          notifyChannels: body.notifyChannels as NotificationChannel[]
+        });
+
+        if (!result.success) {
+          return sendJson(res, 422, {
+            error: 'Validation failed',
+            validation: result.validation
+          });
+        }
+
+        return sendJson(res, 201, result);
+      }
+
+      // API: Transition application status
+      if (pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/transition$/) && method === 'POST') {
+        const matches = pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/transition$/);
+        const id = matches?.[1];
+        if (!id) {
+          return sendJson(res, 400, { error: 'Invalid application ID in URL' });
+        }
+        const body = await parseJsonBody(req);
+
+        if (!body.status || !body.actor) {
+          return sendJson(res, 400, { error: 'Missing required fields: status, actor' });
+        }
+
+        try {
+          const result = await engine.transitionApplication(
+            id,
+            body.status as ApplicationStatus,
+            body.actor,
+            body.note,
+            body.notifyChannels as NotificationChannel[]
+          );
+          return sendJson(res, 200, result);
+        } catch (err) {
+          return sendJson(res, 400, { error: (err as Error).message });
+        }
+      }
+
+      // API: Verify application audit
+      if (pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/verify$/) && method === 'GET') {
+        const matches = pathname.match(/^\/api\/v1\/applications\/([^\/]+)\/verify$/);
+        const id = matches?.[1];
+        if (!id) {
+          return sendJson(res, 400, { error: 'Invalid application ID in URL' });
+        }
+        try {
+          const audit = engine.verifyApplicationAudit(id);
+          return sendJson(res, 200, { applicationId: id, audit });
+        } catch (err) {
+          return sendJson(res, 404, { error: (err as Error).message });
+        }
+      }
+
+      // API: Get application detail
+      if (pathname.startsWith('/api/v1/applications/') && method === 'GET') {
+        const id = pathname.replace('/api/v1/applications/', '');
+        const app = engine.getApplication(id);
+        if (!app) {
+          return sendJson(res, 404, { error: `Application ${id} not found` });
+        }
+        return sendJson(res, 200, { application: app });
+      }
+
+      // API: Notifications history
+      if (pathname === '/api/v1/notifications' && method === 'GET') {
+        return sendJson(res, 200, { notifications: engine.getDispatcher().getHistory() });
+      }
+
+      // UI: Interactive Public Form submission page
+      if (pathname.startsWith('/forms/') && method === 'GET') {
+        const schemaId = pathname.replace('/forms/', '');
+        const schema = engine.getRegistry().get(schemaId);
+        if (!schema) {
+          res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end('<h1>404 — Modulo civico non trovato</h1><p><a href="/">Torna alla Home</a></p>');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderFormHtml(schema));
+        return;
+      }
+
+      // UI: Web Portal Dashboard
+      if (pathname === '/' && method === 'GET') {
+        const schemas = engine.getRegistry().list();
+        const apps = engine.listApplications();
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderDashboardHtml(schemas, apps));
+        return;
+      }
+
+      // 404 for unknown paths
+      return sendJson(res, 404, { error: 'Not found' });
+    } catch (err) {
+      return sendJson(res, 500, { error: 'Internal server error', details: (err as Error).message });
+    }
+  });
+
+  return server;
+}
+
+function sendJson(res: ServerResponse, statusCode: number, data: unknown): void {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data, null, 2));
+}
+
+function parseJsonBody(req: IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 2 * 1024 * 1024) {
+        reject(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(new Error('Invalid JSON payload'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function renderDashboardHtml(schemas: any[], apps: any[]): string {
+  const schemaListHtml = schemas
+    .map(
+      s => `
+    <div style="border:1px solid #d0d7de; border-radius:6px; padding:16px; margin-bottom:12px; background:#ffffff;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0 0 6px 0; color:#0969da;">${escapeHtml(s.title)}</h3>
+        <span style="background:#eef1f5; font-size:12px; padding:3px 8px; border-radius:12px; font-weight:600;">Codice: ${escapeHtml(s.code)}</span>
+      </div>
+      <p style="margin:4px 0 10px 0; color:#57609a; font-size:14px;">${escapeHtml(s.description)}</p>
+      <div style="font-size:13px; color:#656d76; margin-bottom:12px;">
+        <strong>Ente:</strong> ${escapeHtml(s.competentBody)} &bull; 
+        <strong>Termine procedimento (L. 241/90):</strong> ${s.slaDays} giorni
+      </div>
+      <a href="/forms/${escapeHtml(s.id)}" style="display:inline-block; background:#1f883d; color:#fff; padding:6px 14px; text-decoration:none; border-radius:6px; font-size:13px; font-weight:600;">Compila Modulo Istanza &rarr;</a>
+    </div>`
+    )
+    .join('');
+
+  const appRowsHtml =
+    apps.length === 0
+      ? '<tr><td colspan="6" style="padding:14px; text-align:center; color:#656d76;">Nessuna istanza civica ancora presentata. Compila uno dei moduli sopra per avviare un procedimento!</td></tr>'
+      : apps
+          .map(
+            a => `
+    <tr style="border-bottom:1px solid #e1e4e8;">
+      <td style="padding:10px; font-family:monospace; font-weight:bold; color:#0969da;">${escapeHtml(a.id)}</td>
+      <td style="padding:10px;">${escapeHtml(a.schemaId)}</td>
+      <td style="padding:10px;">${escapeHtml(a.applicant.fullName)} (${escapeHtml(a.applicant.taxCode || 'N/A')})</td>
+      <td style="padding:10px;">
+        <span style="padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; ${getStatusBadgeStyle(a.status)}">${escapeHtml(a.status)}</span>
+      </td>
+      <td style="padding:10px; font-size:13px; color:#57609a;">Scadenza: ${escapeHtml(a.dueDate)}</td>
+      <td style="padding:10px;">
+        <a href="/api/v1/applications/${escapeHtml(a.id)}" target="_blank" style="color:#0969da; text-decoration:none; font-size:13px;">Dettagli JSON &rarr;</a>
+      </td>
+    </tr>`
+          )
+          .join('');
+
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CivicOS — Sportello Telematico e Modulistica Civica</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:#f6f8fa; margin:0; padding:24px; color:#1f2328; }
+    .container { max-width: 960px; margin: 0 auto; }
+    header { background:#0969da; color:#ffffff; padding:20px; border-radius:8px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+    h1 { margin:0 0 6px 0; font-size:24px; }
+    h2 { font-size:18px; margin-top:28px; margin-bottom:14px; border-bottom:2px solid #e1e4e8; padding-bottom:6px; }
+    table { width:100%; border-collapse:collapse; background:#ffffff; border-radius:6px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.05); }
+    th { background:#f6f8fa; text-align:left; padding:12px 10px; font-size:13px; color:#57609a; border-bottom:1px solid #d0d7de; }
+    .export-bar { margin: 12px 0; display:flex; gap:10px; align-items:center; }
+    .btn { display:inline-block; padding:6px 12px; border-radius:6px; text-decoration:none; font-size:13px; font-weight:600; border:1px solid #d0d7de; background:#f6f8fa; color:#24292f; }
+    .btn:hover { background:#eaeef2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🏛️ CivicOS — Digital Public Goods Engine</h1>
+      <p style="margin:0; opacity:0.9; font-size:14px;">Motore open source per modulistica civica, ciclo di vita procedimenti e notifiche interoperabili (Apache-2.0).</p>
+    </header>
+
+    <h2>📋 Modelli di Servizio Civico Disponibili</h2>
+    ${schemaListHtml}
+
+    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+      <h2>📁 Istanze e Procedimenti Amministrativi</h2>
+      <div class="export-bar">
+        <span style="font-size:13px; color:#57609a;">Export dati:</span>
+        <a class="btn" href="/api/v1/export?format=json" target="_blank">JSON</a>
+        <a class="btn" href="/api/v1/export?format=csv" target="_blank">CSV OpenData</a>
+        <a class="btn" href="/api/v1/export?format=ndjson" target="_blank">NDJSON</a>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Codice Pratica</th>
+          <th>Servizio</th>
+          <th>Richiedente</th>
+          <th>Stato</th>
+          <th>SLA Procedimento</th>
+          <th>Azione</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${appRowsHtml}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+function renderFormHtml(schema: any): string {
+  const fieldsHtml = schema.fields
+    .map((f: any) => {
+      const requiredMark = f.required ? '<span style="color:#cf222e;">*</span>' : '';
+      let inputHtml = '';
+
+      if (f.type === 'select') {
+        const opts = (f.options || [])
+          .map((o: any) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
+          .join('');
+        inputHtml = `<select name="${escapeHtml(f.name)}" style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" ${f.required ? 'required' : ''}>${opts}</select>`;
+      } else if (f.type === 'textarea') {
+        inputHtml = `<textarea name="${escapeHtml(f.name)}" placeholder="${escapeHtml(f.placeholder || '')}" rows="3" style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" ${f.required ? 'required' : ''}></textarea>`;
+      } else if (f.type === 'checkbox') {
+        inputHtml = `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" name="${escapeHtml(f.name)}" value="true"> ${escapeHtml(f.label)}</label>`;
+      } else {
+        const inputType = f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text';
+        inputHtml = `<input type="${inputType}" name="${escapeHtml(f.name)}" placeholder="${escapeHtml(f.placeholder || '')}" style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" ${f.required ? 'required' : ''}>`;
+      }
+
+      return `
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-weight:600; font-size:14px; margin-bottom:4px; color:#24292f;">
+          ${escapeHtml(f.label)} ${requiredMark}
+        </label>
+        ${inputHtml}
+      </div>`;
+    })
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(schema.title)} — CivicOS</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#f6f8fa; margin:0; padding:24px; color:#1f2328; }
+    .card { max-width: 680px; margin: 0 auto; background:#ffffff; padding:24px; border-radius:8px; border:1px solid #d0d7de; box-shadow:0 1px 3px rgba(0,0,0,0.05); }
+    h1 { font-size:20px; color:#0969da; margin-top:0; }
+    fieldset { border:1px solid #e1e4e8; border-radius:6px; padding:16px; margin-bottom:16px; }
+    legend { font-weight:600; font-size:13px; color:#57609a; padding:0 6px; }
+    .btn-submit { background:#1f883d; color:#ffffff; font-weight:600; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; font-size:14px; }
+    .btn-submit:hover { background:#1a7f37; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a href="/" style="color:#0969da; text-decoration:none; font-size:13px;">&larr; Torna alla Dashboard</a>
+    <h1>${escapeHtml(schema.title)}</h1>
+    <p style="color:#57609a; font-size:14px; margin-bottom:18px;">${escapeHtml(schema.description)}</p>
+    <div style="background:#f0f8ff; padding:10px; border-radius:6px; font-size:13px; margin-bottom:16px;">
+      <strong>Competenza:</strong> ${escapeHtml(schema.competentBody)} &bull; 
+      <strong>Termine conclusione:</strong> ${schema.slaDays} giorni ex L. 241/90
+    </div>
+
+    <form id="civicForm">
+      <fieldset>
+        <legend>Dati del Richiedente (Cittadino / Delegato)</legend>
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-size:13px; font-weight:600;">Nome e Cognome *</label>
+          <input type="text" name="applicant_fullName" required style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="es. Mario Rossi">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-size:13px; font-weight:600;">Codice Fiscale *</label>
+          <input type="text" name="applicant_taxCode" required style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="RSSMRA85M01H501Z">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-size:13px; font-weight:600;">Email / PEC per notifiche *</label>
+          <input type="email" name="applicant_email" required style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="mario.rossi@example.com">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-size:13px; font-weight:600;">Recapito Telefonico (SMS / App IO)</label>
+          <input type="tel" name="applicant_phone" style="width:100%; padding:8px; border:1px solid #d0d7de; border-radius:6px;" placeholder="+39 340 1234567">
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Dati Specifici dell'Istanza</legend>
+        ${fieldsHtml}
+      </fieldset>
+
+      <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+        <button type="submit" class="btn-submit">Invia Istanza Telematica &rarr;</button>
+        <span id="formFeedback" style="font-size:13px; font-weight:600;"></span>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('civicForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const fb = document.getElementById('formFeedback');
+      fb.style.color = '#57609a';
+      fb.textContent = 'Trasmissione in corso...';
+
+      const formData = new FormData(this);
+      const applicant = {
+        fullName: formData.get('applicant_fullName'),
+        taxCode: formData.get('applicant_taxCode'),
+        email: formData.get('applicant_email'),
+        phone: formData.get('applicant_phone')
+      };
+
+      const data = {};
+      for (const [key, val] of formData.entries()) {
+        if (!key.startsWith('applicant_')) {
+          data[key] = val;
+        }
+      }
+
+      try {
+        const res = await fetch('/api/v1/applications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            schemaId: '${escapeHtml(schema.id)}',
+            applicant: applicant,
+            data: data
+          })
+        });
+
+        const json = await res.json();
+        if (res.ok) {
+          fb.style.color = '#1f883d';
+          fb.innerHTML = 'Istanza inviata con successo! Protocollo: <strong>' + json.application.id + '</strong>. Reindirizzamento...';
+          setTimeout(() => { window.location.href = '/'; }, 2000);
+        } else {
+          fb.style.color = '#cf222e';
+          fb.textContent = 'Errore validazione: ' + (json.validation ? json.validation.errors.map(e => e.message).join('; ') : json.error);
+        }
+      } catch (err) {
+        fb.style.color = '#cf222e';
+        fb.textContent = 'Errore di connessione al server.';
+      }
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getStatusBadgeStyle(status: string): string {
+  switch (status) {
+    case 'SUBMITTED':
+      return 'background:#ddf4ff; color:#0969da; border:1px solid #54aeff;';
+    case 'IN_REVIEW':
+      return 'background:#fff8c5; color:#9a6700; border:1px solid #d4a72c;';
+    case 'INTEGRATION_REQUESTED':
+      return 'background:#fff1e5; color:#bc4c00; border:1px solid #fb8f44;';
+    case 'APPROVED':
+      return 'background:#dafbe1; color:#1a7f37; border:1px solid #4ac26b;';
+    case 'REJECTED':
+      return 'background:#ffebe9; color:#cf222e; border:1px solid #ff8182;';
+    case 'CLOSED':
+      return 'background:#eaeef2; color:#57609a; border:1px solid #8c959f;';
+    default:
+      return 'background:#f6f8fa; color:#24292f;';
+  }
+}
